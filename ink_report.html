@@ -482,7 +482,7 @@ const threshVal  = document.getElementById('thresh-val');
 const resultsSec = document.getElementById('results-section');
 const mascotWrap = document.getElementById('mascot-wrap');
 
-let sourceCanvas=null, W=0, H=0, grayData=null;
+let sourceCanvas=null, W=0, H=0, grayData=null, rgbaData=null;
 
 dropzone.addEventListener('click', (e)=>{ if(e.target.closest('.bb') || e.target.closest('#preview-draw-canvas')) return; fileInput.click(); });
 dropzone.addEventListener('dragover', e=>{ e.preventDefault(); dropzone.classList.add('dragover'); });
@@ -597,6 +597,7 @@ function prepareImage(img){
   const ctx=cv.getContext('2d');
   ctx.drawImage(img,0,0,W,H);
   const imgData = ctx.getImageData(0,0,W,H);
+  rgbaData = imgData.data;
   grayData = new Uint8ClampedArray(W*H);
   for(let i=0,p=0; i<imgData.data.length; i+=4,p++){
     grayData[p] = 0.299*imgData.data[i]+0.587*imgData.data[i+1]+0.114*imgData.data[i+2];
@@ -634,11 +635,17 @@ function classifyCluster(c) {
     const aspect = w / (h || 1);
     const density = c.size / (w * h || 1);
     
-    if (aspect > 2.5 && c.size > 800 && density > 0.1) return 'Signature';
-    if (c.size > 2000) return 'Chaotic Scribble';
-    if (c.size < 500 && aspect > 0.5 && aspect < 2.0 && density > 0.2) return 'Alphabet / Letter';
-    if (c.elongation > 6) return 'Drawn Line';
-    return 'Unknown Doodle';
+    // Drawn lines are highly elongated
+    if (c.elongation > 5.0 && density < 0.4) return 'Drawn Line';
+    
+    // Signatures are usually wide
+    if (aspect > 2.0 && c.size > 300 && density > 0.05 && density < 0.4) return 'Signature';
+    
+    // Alphabets/letters have somewhat balanced aspect ratios.
+    // In live drawing mode, they can be huge (pixel-wise), so we rely on density and aspect ratio rather than raw size.
+    if (aspect > 0.2 && aspect < 3.0 && density > 0.02 && density < 0.6) return 'Alphabet / Letter';
+    
+    return 'Chaotic Scribble';
 }
 
 function runFullAnalysis(threshold){
@@ -650,8 +657,81 @@ function runFullAnalysis(threshold){
   const clusters = findClusters(ink);
   const density  = computeDensity(ink);
   const lineClusters = clusters.filter(c=>c.elongation>6&&c.size>150);
-  buildPanels(ink, inkCount, clusters, density, lineClusters);
+  const colorData = analyzeInkColor(ink);
+  buildPanels(ink, inkCount, clusters, density, lineClusters, colorData);
   showResults(inkCount, clusters, density, lineClusters);
+}
+
+function analyzeInkColor(ink){
+  let sumR=0, sumG=0, sumB=0, count=0;
+  let hSum=0, sSum=0, vSum=0;
+  let lSum=0, aSum=0, bLabSum=0;
+
+  for(let i=0; i<ink.length; i++){
+    if(ink[i]===1 && rgbaData){
+      const r = rgbaData[i*4];
+      const g = rgbaData[i*4+1];
+      const b = rgbaData[i*4+2];
+      sumR+=r; sumG+=g; sumB+=b; count++;
+
+      // sRGB -> HSV
+      const r_=r/255, g_=g/255, b_=b/255;
+      const max=Math.max(r_,g_,b_), min=Math.min(r_,g_,b_);
+      const d=max-min;
+      let h=0;
+      if(d!==0){
+        if(max===r_) h=((g_-b_)/d)%6;
+        else if(max===g_) h=(b_-r_)/d+2;
+        else h=(r_-g_)/d+4;
+        h=Math.round(h*60);
+        if(h<0) h+=360;
+      }
+      const s=max===0?0:d/max;
+      const v=max;
+      hSum+=h; sSum+=s; vSum+=v;
+
+      // sRGB -> CIELAB (L*, a*, b*)
+      let rL = r_ > 0.04045 ? Math.pow((r_+0.055)/1.055, 2.4) : r_/12.92;
+      let gL = g_ > 0.04045 ? Math.pow((g_+0.055)/1.055, 2.4) : g_/12.92;
+      let bL = b_ > 0.04045 ? Math.pow((b_+0.055)/1.055, 2.4) : b_/12.92;
+      rL *= 100; gL *= 100; bL *= 100;
+      let X = rL * 0.4124 + gL * 0.3576 + bL * 0.1805;
+      let Y = rL * 0.2126 + gL * 0.7152 + bL * 0.0722;
+      let Z = rL * 0.0193 + gL * 0.1192 + bL * 0.9505;
+      X /= 95.047; Y /= 100.000; Z /= 108.883;
+      const fx = X > 0.008856 ? Math.cbrt(X) : (7.787 * X) + 16/116;
+      const fy = Y > 0.008856 ? Math.cbrt(Y) : (7.787 * Y) + 16/116;
+      const fz = Z > 0.008856 ? Math.cbrt(Z) : (7.787 * Z) + 16/116;
+      const L_lab = (116 * fy) - 16;
+      const a_lab = 500 * (fx - fy);
+      const b_lab = 200 * (fy - fz);
+      lSum += L_lab; aSum += a_lab; bLabSum += b_lab;
+    }
+  }
+
+  if(!count) count=1;
+  const meanR = Math.round(sumR/count);
+  const meanG = Math.round(sumG/count);
+  const meanB = Math.round(sumB/count);
+  const meanH = Math.round(hSum/count);
+  const meanS = (sSum/count*100).toFixed(1);
+  const meanV = (vSum/count*100).toFixed(1);
+  const meanL = (lSum/count).toFixed(1);
+  const meanA = (aSum/count).toFixed(1);
+  const meanLabB = (bLabSum/count).toFixed(1);
+
+  const hex = "#" + ((1 << 24) + (meanR << 16) + (meanG << 8) + meanB).toString(16).slice(1).toUpperCase();
+
+  let pigmentType = "Standard Dark Ink";
+  if (meanV < 28 && meanS < 20) pigmentType = "Carbon Black / India Ink";
+  else if (meanV < 45 && meanS < 25) pigmentType = "Graphite Pencil (HB/2B Lead)";
+  else if (meanH >= 180 && meanH <= 260 && meanS > 20) pigmentType = "Royal Blue Ballpoint Pigment";
+  else if (meanH >= 180 && meanH <= 260 && meanV > 55) pigmentType = "Cyan / Gel Blue Ink";
+  else if ((meanH < 20 || meanH > 340) && meanS > 25) pigmentType = "Crimson Red Marking Pigment";
+  else if (meanH >= 80 && meanH <= 160) pigmentType = "Emerald Green Ink";
+  else if (meanH >= 260 && meanH <= 330) pigmentType = "Violet / Purple Gel Ink";
+
+  return { meanR, meanG, meanB, meanH, meanS, meanV, meanL, meanA, meanLabB, hex, pigmentType, count };
 }
 
 function findClusters(ink){
@@ -766,7 +846,7 @@ function estimateStrokes(c) {
   return Math.min(3, Math.max(1, Math.round(c.size / 250)));
 }
 
-function buildPanels(ink, inkCount, clusters, densityData, lineClusters){
+function buildPanels(ink, inkCount, clusters, densityData, lineClusters, colorData){
   const totalPx = W*H;
   const pct = (inkCount/totalPx*100);
   const inkMetre = calcInkMetres(inkCount, W, H, W, H);
@@ -812,7 +892,7 @@ function buildPanels(ink, inkCount, clusters, densityData, lineClusters){
           <div class="stat-card"><div class="v">${sigCount}</div><div class="k">signatures detected</div></div>
           <div class="stat-card"><div class="v">${letterCount}</div><div class="k">letter elements detected</div></div>
           <div class="stat-card"><div class="v">${inkMetre.m.toFixed(2)} m</div><div class="k">total ink path length</div></div>
-          <div class="stat-card"><div class="v">${Math.round(avgSz)} px</div><div class="k">avg cluster area</div></div>
+          <div class="stat-card"><div class="v">${colorData ? colorData.pigmentType : 'Dark Ink'}</div><div class="k">detected ink pigment</div></div>
           <div class="stat-card"><div class="v">${domQuad}</div><div class="k">highest density quadrant</div></div>
         </div>
         <canvas class="viz" id="canvas-overview"></canvas>`;
@@ -827,6 +907,57 @@ function buildPanels(ink, inkCount, clusters, densityData, lineClusters){
             id.data[i*4]=v; id.data[i*4+1]=v; id.data[i*4+2]=v; id.data[i*4+3]=255;
           }
           ctx.putImageData(id,0,0);
+        });
+      }
+    },
+    {
+      icon:'🎨', title:'INK PIGMENT SPECTROSCOPE', desc:'Detailed RGB, HSV, CIELAB & Pigment Analysis',
+      render: (el)=>{
+        el.innerHTML = `
+        <div class="panel-header"><div class="panel-icon">🎨</div><div><div class="panel-title">INK PIGMENT SPECTROSCOPE</div><div class="panel-desc">Detailed RGB, HSV, CIELAB & Pigment Analysis</div></div></div>
+        <div class="headline-stat">
+          <div class="big" style="color:${colorData.hex}">${colorData.pigmentType}</div>
+          <div class="label">detected ink pigment composition (Dominant HEX: <span style="display:inline-block;width:14px;height:14px;background:${colorData.hex};border:1px solid #000;vertical-align:middle;"></span> <code>${colorData.hex}</code>)</div>
+        </div>
+        <div class="stat-grid">
+          <div class="stat-card"><div class="v">RGB(${colorData.meanR}, ${colorData.meanG}, ${colorData.meanB})</div><div class="k">mean sRGB color</div></div>
+          <div class="stat-card"><div class="v">${colorData.meanH}°</div><div class="k">mean hue angle</div></div>
+          <div class="stat-card"><div class="v">${colorData.meanS}%</div><div class="k">color saturation</div></div>
+          <div class="stat-card"><div class="v">${colorData.meanV}%</div><div class="k">value / brightness</div></div>
+          <div class="stat-card"><div class="v">L*: ${colorData.meanL}</div><div class="k">CIELAB lightness</div></div>
+          <div class="stat-card"><div class="v">a*: ${colorData.meanA}, b*: ${colorData.meanLabB}</div><div class="k">CIELAB chromaticity</div></div>
+        </div>
+        <div class="split">
+          <div>
+            <canvas class="viz" id="canvas-color-inspector" style="cursor:crosshair;"></canvas>
+            <div id="inspector-readout" style="font-family:var(--mono);font-size:12px;margin-top:8px;padding:8px;background:var(--paper);border:1px solid var(--paper-line);">
+              🎯 Hover/click canvas above to inspect pixel color values in real-time.
+            </div>
+          </div>
+          <div>
+            <p class="note">🔬 <strong>Color Analysis Methodology:</strong> Ink pixels extracted via Otsu thresholding are transformed from sRGB color space into 3D HSV cylindrical coordinates and CIELAB perceptual color space (D65 white point). Pigment types are classified based on spectral hue angles and lightness levels.</p>
+          </div>
+        </div>`;
+        requestAnimationFrame(()=>{
+          const cv=document.getElementById('canvas-color-inspector');
+          if(!cv) return;
+          cv.width=W; cv.height=H;
+          const ctx=cv.getContext('2d');
+          ctx.drawImage(sourceCanvas,0,0);
+
+          cv.onmousemove = cv.onclick = (e) => {
+            const rect = cv.getBoundingClientRect();
+            const x = Math.floor((e.clientX - rect.left) * (W / rect.width));
+            const y = Math.floor((e.clientY - rect.top) * (H / rect.height));
+            if (x>=0 && x<W && y>=0 && y<H && rgbaData) {
+              const idx = (y * W + x) * 4;
+              const r = rgbaData[idx], g = rgbaData[idx+1], b = rgbaData[idx+2];
+              const hexPx = "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase();
+              document.getElementById('inspector-readout').innerHTML = `
+                📍 <strong>Pixel (${x}, ${y}):</strong> <span style="display:inline-block;width:12px;height:12px;background:${hexPx};border:1px solid #000;vertical-align:middle;"></span> <code>${hexPx}</code> | RGB(${r}, ${g}, ${b}) | Mask: <strong>${grayData[y*W+x] < parseInt(threshSlider.value,10) ? 'INK' : 'PAPER'}</strong>
+              `;
+            }
+          };
         });
       }
     },
