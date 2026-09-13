@@ -397,32 +397,32 @@ def _hstack_with_banner(images, banner_lines, banner_height=170):
     return np.vstack([banner, strip])
 
 
-def run_auto(path, out_dir="output"):
-    img, gray, thresh = load_and_threshold(path)
+def analyze_auto(gray, thresh):
     h, w = thresh.shape
     content_type = classify_content(thresh, h, w)
+    
+    combined_lines = []
 
     if content_type == "tremor":
         try:
             result, lines = analyze_tremor(gray, thresh)
+            combined_lines = [f"CONTENT DETECTED: Line drawing / tremor test"] + lines
         except ValueError:
             # fall back if the line-detector was wrong about elongation
             result, lines = analyze_doodle_index(gray, thresh)
             content_type = "handwriting"
-        final = _hstack_with_banner(
-            [result], [f"CONTENT DETECTED: Line drawing / tremor test"] + lines)
+            combined_lines = ["CONTENT DETECTED: Handwriting page (tremor fallback)"] + lines
+        final = _hstack_with_banner([result], combined_lines)
 
     elif content_type == "signature":
         try:
             result, lines = analyze_signature_shake(gray, thresh)
+            combined_lines = ["CONTENT DETECTED: Signature pair"] + lines
         except ValueError:
             result, lines = analyze_doodle_index(gray, thresh)
             content_type = "handwriting"
-            final = _hstack_with_banner(
-                [result], ["CONTENT DETECTED: Handwriting page (signature pair not found)"] + lines)
-        else:
-            final = _hstack_with_banner(
-                [result], ["CONTENT DETECTED: Signature pair"] + lines)
+            combined_lines = ["CONTENT DETECTED: Handwriting page (signature pair not found)"] + lines
+        final = _hstack_with_banner([result], combined_lines)
 
     else:  # handwriting / doodle page -> combine BOTH scribble-density + spatial pattern
         result_a, lines_a = analyze_doodle_index(gray, thresh)
@@ -434,6 +434,11 @@ def run_auto(path, out_dir="output"):
         combined_lines = ["CONTENT DETECTED: Handwriting / doodle page"] + lines_a + lines_b
         final = _hstack_with_banner([result_a, result_b], combined_lines, banner_height=260)
 
+    return final, combined_lines
+
+def run_auto(path, out_dir="output"):
+    img, gray, thresh = load_and_threshold(path)
+    final, _ = analyze_auto(gray, thresh)
     save_result(final, os.path.join(out_dir, "auto_combined_result.jpg"))
 
 
