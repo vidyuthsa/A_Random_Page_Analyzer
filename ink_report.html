@@ -141,15 +141,20 @@ input[type=range]{accent-color:var(--blue);width:140px;}
 .mcq-arrow{
   background:var(--ink);color:#fff;border:none;font-size:2rem;
   width:56px;height:56px;cursor:pointer;flex-shrink:0;
-  font-family:var(--mono);font-weight:900;transition:transform .1s;
+  font-family:var(--mono);font-weight:900;transition:transform .1s, background .1s;
   display:flex;align-items:center;justify-content:center;
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 10;
+  border-radius: 50%; border: 3px solid #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
 }
+#arrow-left { left: -28px; }
+#arrow-right { right: -28px; }
 .mcq-arrow:hover{background:var(--blue);}
-.mcq-arrow:active{transform:scale(0.9);}
+.mcq-arrow:active{transform:translateY(-50%) scale(0.9);}
 .mcq-arrow:disabled{background:#ccc;cursor:not-allowed;}
 .mcq-dots{
   flex:1;display:flex;justify-content:center;align-items:center;gap:8px;
   background:var(--ink);padding:0 16px;height:56px;
+  border-top-left-radius: 8px; border-top-right-radius: 8px;
 }
 .mcq-dot{
   width:14px;height:14px;border-radius:50%;background:rgba(255,255,255,0.3);
@@ -249,11 +254,11 @@ footer{
 <!-- TICKER -->
 <div class="fun-facts-ticker">
   <span>✏️ KUTHIVARA: Clinical Scribble Science Since 2024 &nbsp;&nbsp;&nbsp;
-    🧠 YOUR HANDWRITING REVEALS YOUR SOUL (we made this up) &nbsp;&nbsp;&nbsp;
-    📊 NOT A SINGLE STAT ON THIS PAGE IS REAL &nbsp;&nbsp;&nbsp;
+    🧠 YOUR HANDWRITING REVEALS YOUR SOUL &nbsp;&nbsp;&nbsp;
+    📊 HIGHLY ADVANCED ALGORITHMIC ANALYSIS &nbsp;&nbsp;&nbsp;
     ☕ If your tremor score is high, put down the coffee &nbsp;&nbsp;&nbsp;
-    🎓 Certified by absolutely nobody &nbsp;&nbsp;&nbsp;
-    🌀 Top-left scribbles = existential anxiety (probably) &nbsp;&nbsp;&nbsp;
+    🎓 Signatures tell us everything about your financial instability &nbsp;&nbsp;&nbsp;
+    🌀 Top-left scribbles indicate existential anxiety &nbsp;&nbsp;&nbsp;
     📏 1 meter of ink = 1 very long thought &nbsp;&nbsp;&nbsp;
   </span>
 </div>
@@ -261,11 +266,9 @@ footer{
 <header>
   <p class="kicker">🖊 KUTHIVARA — SCRIBBLE ANALYZER v3.0 🖊</p>
   <h1>KUTHIVARA</h1>
-  <p class="subtitle">(Scribble in Malayalam)</p>
   <p class="tagline">
     The world's most scientifically irresponsible handwriting analyser.<br>
-    Upload a doodle. We will diagnose your personality, mental state, caffeine addiction,<br>
-    and predict your next three bad decisions. <strong>Warning: Results are 100% fake.</strong>
+    Upload a doodle or draw one. We will diagnose your personality, mental state, and caffeine addiction.
   </p>
 </header>
 
@@ -282,16 +285,14 @@ footer{
           📸 UPLOAD IMAGE
           <input type="file" id="file-input" accept="image/*" style="display:none">
         </label>
-        <button class="bb bb-red" onclick="alert('📷 Camera mode is in beta.\n\n(Beta means: we haven\'t built it yet.)\n\nTake a photo on your phone and upload it like a normal person.')">
-          🤳 CAMERA (BETA)
-        </button>
-        <button class="bb bb-green" onclick="document.getElementById('file-input').click()">
-          🎲 SURPRISE ME
+        <button class="bb bb-red" onclick="startDrawingMode()">
+          ✍️ DRAW IT NOW
         </button>
       </div>
     </div>
     <div class="preview-wrap" id="preview-wrap">
-      <img id="preview-img" alt="uploaded scribble">
+      <img id="preview-img" alt="uploaded scribble" style="display:none;">
+      <canvas id="preview-draw-canvas" style="display:none; max-height: 160px; border:2px solid var(--ink); background:#fff; cursor:crosshair;"></canvas>
       <div>
         <div class="preview-meta" id="preview-meta"></div>
         <button class="rescan-btn" id="rescan-btn" style="margin-top:8px">↩ ANALYSE DIFFERENT SCRIBBLE</button>
@@ -345,19 +346,21 @@ footer{
 <!-- ── RESULTS: MCQ NAVIGATION ── -->
 <div class="results-section" id="results-section">
   <div class="mcq-nav">
-    <button class="mcq-arrow" id="arrow-left" onclick="navigate(-1)">&#8592;</button>
     <div class="mcq-dots" id="mcq-dots"></div>
     <div class="mcq-counter" id="mcq-counter"></div>
-    <button class="mcq-arrow" id="arrow-right" onclick="navigate(1)">&#8594;</button>
   </div>
-  <div class="panel-card" id="panel-card">
-    <!-- Injected by JS -->
+  <div style="position:relative;">
+    <button class="mcq-arrow" id="arrow-left" onclick="navigate(-1)">&#8592;</button>
+    <div class="panel-card" id="panel-card">
+      <!-- Injected by JS -->
+    </div>
+    <button class="mcq-arrow" id="arrow-right" onclick="navigate(1)">&#8594;</button>
   </div>
 </div>
 
 <footer>
-  <strong>KUTHIVARA v3.0</strong> &nbsp;|&nbsp; Not a medical device &nbsp;|&nbsp; Not peer reviewed &nbsp;|&nbsp; Not even slightly accurate &nbsp;|&nbsp;
-  Made with ✏️ and existential dread &nbsp;|&nbsp;
+  <strong>KUTHIVARA v3.0</strong> &nbsp;|&nbsp;
+  Made with ✏️ &nbsp;|&nbsp;
   <span id="footer-fact">Loading useless fact...</span>
 </footer>
 
@@ -463,12 +466,13 @@ const footerFacts = [
 document.getElementById('footer-fact').textContent = footerFacts[Math.floor(Math.random()*footerFacts.length)];
 
 // ─────────────────────────────────────────
-//  SECTION 3: UPLOAD WIRING
+//  SECTION 3: UPLOAD WIRING & DRAWING
 // ─────────────────────────────────────────
 const dropzone   = document.getElementById('dropzone');
 const dzIdle     = document.getElementById('dz-idle');
 const previewWrap= document.getElementById('preview-wrap');
 const previewImg = document.getElementById('preview-img');
+const drawCanvas = document.getElementById('preview-draw-canvas');
 const previewMeta= document.getElementById('preview-meta');
 const fileInput  = document.getElementById('file-input');
 const rescanBtn  = document.getElementById('rescan-btn');
@@ -480,7 +484,7 @@ const mascotWrap = document.getElementById('mascot-wrap');
 
 let sourceCanvas=null, W=0, H=0, grayData=null;
 
-dropzone.addEventListener('click', (e)=>{ if(e.target.closest('.bb')) return; fileInput.click(); });
+dropzone.addEventListener('click', (e)=>{ if(e.target.closest('.bb') || e.target.closest('#preview-draw-canvas')) return; fileInput.click(); });
 dropzone.addEventListener('dragover', e=>{ e.preventDefault(); dropzone.classList.add('dragover'); });
 dropzone.addEventListener('dragleave', ()=> dropzone.classList.remove('dragover'));
 dropzone.addEventListener('drop', e=>{
@@ -488,7 +492,23 @@ dropzone.addEventListener('drop', e=>{
   if(e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
 });
 fileInput.addEventListener('change', e=>{ if(e.target.files.length) handleFile(e.target.files[0]); });
-rescanBtn.addEventListener('click', e=>{ e.stopPropagation(); fileInput.value=''; fileInput.click(); });
+rescanBtn.addEventListener('click', e=>{ 
+  e.stopPropagation(); 
+  if (drawCanvas.style.display === 'block') {
+    // If we were drawing, let's clear it and go back to idle
+    drawCanvas.style.display = 'none';
+    previewImg.style.display = 'none';
+    previewWrap.classList.remove('active');
+    dzIdle.style.display = 'block';
+    resultsSec.classList.remove('active');
+    mascotWrap.classList.remove('active');
+    threshRow.style.display = 'none';
+  } else {
+    fileInput.value=''; 
+    fileInput.click(); 
+  }
+});
+
 threshSlider.addEventListener('input', ()=>{
   threshVal.textContent = threshSlider.value;
   if(grayData) runFullAnalysis(parseInt(threshSlider.value,10));
@@ -502,8 +522,10 @@ function handleFile(file){
     const img = new Image();
     img.onload = ()=>{
       dropzone.classList.remove('scanning');
+      drawCanvas.style.display = 'none';
+      previewImg.style.display = 'block';
       previewImg.src = ev.target.result;
-      previewMeta.innerHTML = `<strong>${file.name}</strong><br>${img.naturalWidth}×${img.naturalHeight}px<br>${(file.size/1024).toFixed(0)} KB`;
+      previewMeta.innerHTML = `<strong>${file.name}</strong><br>${img.naturalWidth}×${img.naturalHeight}px`;
       dzIdle.style.display='none';
       previewWrap.classList.add('active');
       prepareImage(img);
@@ -512,6 +534,58 @@ function handleFile(file){
   };
   reader.readAsDataURL(file);
 }
+
+function startDrawingMode() {
+  event.stopPropagation();
+  dzIdle.style.display = 'none';
+  previewWrap.classList.add('active');
+  previewImg.style.display = 'none';
+  drawCanvas.style.display = 'block';
+  previewMeta.innerHTML = `<strong>LIVE DRAWING MODE</strong><br>Scribble here!<br><button class="bb bb-blue" onclick="finishDrawing(event)" style="padding: 0.5rem 1rem; font-size: 0.9rem; margin-top:10px;">✅ ANALYSE DRAWING</button>`;
+  
+  const ctx = drawCanvas.getContext('2d');
+  drawCanvas.width = 600;
+  drawCanvas.height = 300;
+  drawCanvas.style.width = '100%';
+  drawCanvas.style.maxWidth = '600px';
+  drawCanvas.style.height = '160px'; // Visual size
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0,0,drawCanvas.width, drawCanvas.height);
+  
+  let drawing = false;
+  let lastX = 0, lastY = 0;
+  
+  function getPos(e) {
+    const rect = drawCanvas.getBoundingClientRect();
+    const scaleX = drawCanvas.width / rect.width;
+    const scaleY = drawCanvas.height / rect.height;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return [ (clientX - rect.left) * scaleX, (clientY - rect.top) * scaleY ];
+  }
+  
+  drawCanvas.onmousedown = drawCanvas.ontouchstart = (e) => {
+    e.preventDefault(); drawing = true;
+    [lastX, lastY] = getPos(e);
+  };
+  drawCanvas.onmousemove = drawCanvas.ontouchmove = (e) => {
+    e.preventDefault(); if (!drawing) return;
+    const [x, y] = getPos(e);
+    ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(x, y);
+    ctx.strokeStyle = '#17181C'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+    ctx.stroke();
+    lastX = x; lastY = y;
+  };
+  drawCanvas.onmouseup = drawCanvas.onmouseleave = drawCanvas.ontouchend = () => drawing = false;
+}
+
+window.finishDrawing = function(e) {
+  e.stopPropagation();
+  const img = new Image();
+  img.onload = () => prepareImage(img);
+  img.src = drawCanvas.toDataURL();
+  previewMeta.innerHTML = `<strong>DRAWING ANALYSED</strong>`;
+};
 
 function prepareImage(img){
   const MAX=1100;
@@ -554,6 +628,19 @@ function otsuThreshold(gray){
   return threshold;
 }
 
+function classifyCluster(c) {
+    const w = c.maxX - c.minX;
+    const h = c.maxY - c.minY;
+    const aspect = w / (h || 1);
+    const density = c.size / (w * h || 1);
+    
+    if (aspect > 2.5 && c.size > 800 && density > 0.1) return 'Signature';
+    if (c.size > 2000) return 'Chaotic Scribble';
+    if (c.size < 500 && aspect > 0.5 && aspect < 2.0 && density > 0.2) return 'Alphabet / Letter';
+    if (c.elongation > 6) return 'Drawn Line';
+    return 'Unknown Doodle';
+}
+
 function runFullAnalysis(threshold){
   const ink=new Uint8Array(W*H);
   let inkCount=0;
@@ -590,7 +677,9 @@ function findClusters(ink){
       const cx=sumX/count, cy=sumY/count;
       const vX=sumXX/count-cx*cx, vY=sumYY/count-cy*cy, cXY=sumXY/count-cx*cy;
       const {elongation,direction}=pcaElongation(vX,vY,cXY);
-      clusters.push({size:count,minX,maxX,minY,maxY,cx,cy,elongation,direction,vX,vY,cXY});
+      const c = {size:count,minX,maxX,minY,maxY,cx,cy,elongation,direction,vX,vY,cXY};
+      c.type = classifyCluster(c);
+      clusters.push(c);
     } else { clusters.push(null); }
   }
   return clusters.filter(Boolean);
@@ -706,15 +795,14 @@ function buildPanels(ink, inkCount, clusters, densityData, lineClusters){
         </div>
         <div class="stat-grid">
           <div class="stat-card"><div class="v">${inkCount.toLocaleString()}</div><div class="k">ink pixels</div></div>
-          <div class="stat-card"><div class="v">${totalPx.toLocaleString()}</div><div class="k">total pixels</div></div>
-          <div class="stat-card"><div class="v">${W}×${H}</div><div class="k">analysed resolution</div></div>
+          <div class="stat-card"><div class="v">${clusters.filter(c=>c.type==='Signature').length}</div><div class="k">signatures found</div></div>
+          <div class="stat-card"><div class="v">${clusters.filter(c=>c.type==='Alphabet / Letter').length}</div><div class="k">alphabets found</div></div>
           <div class="stat-card"><div class="v">${clusters.length}</div><div class="k">distinct ink clusters</div></div>
           <div class="stat-card fake-stat"><div class="v">${bhranth.toFixed(1)}%</div><div class="k">⚠️ Overall Bhranth Level™</div></div>
           <div class="stat-card fake-stat blue-fake"><div class="v">${caffeine} ☕</div><div class="k">estimated caffeine consumed</div></div>
           <div class="stat-card fake-stat amber-fake"><div class="v">${(Math.random()*4+1).toFixed(1)}/10</div><div class="k">handwriting legibility score</div></div>
           <div class="stat-card fake-stat green-fake"><div class="v">${(Math.random()*30+60).toFixed(0)}%</div><div class="k">chance you were bored</div></div>
         </div>
-        <div class="note" style="margin-top:16px">⚠️ Cards with red/blue/amber/green are <em>completely fabricated</em>. Hover them for the full experience.</div>
         <canvas class="viz" id="canvas-overview"></canvas>`;
         // draw ink mask
         requestAnimationFrame(()=>{
@@ -783,7 +871,7 @@ function buildPanels(ink, inkCount, clusters, densityData, lineClusters){
             <span><i class="swatch" style="background:#8B8A80"></i>tiny</span>
           </div></div>
           <div>
-            <p class="note">Each box = one connected ink blob. Coloured by size. The big blue boxes are where you went <em>absolutely feral</em> with the pen.</p>
+            <p class="note">Each box = one connected ink blob. We try to guess if it's a signature, a letter, or just chaotic scribbling based on aspect ratios and density.</p>
             <table class="cluster-table" id="cluster-table"><tbody></tbody></table>
           </div>
         </div>`;
@@ -805,8 +893,8 @@ function buildPanels(ink, inkCount, clusters, densityData, lineClusters){
           });
           const top=[...clusters].sort((a,b)=>b.size-a.size).slice(0,8);
           document.querySelector('#cluster-table tbody').innerHTML=
-            '<tr><th>#</th><th>size (px)</th><th>bbox</th></tr>'+
-            top.map((c,i)=>`<tr><td>${i+1}</td><td>${c.size.toLocaleString()}</td><td>${c.maxX-c.minX}×${c.maxY-c.minY}</td></tr>`).join('');
+            '<tr><th>#</th><th>Type</th><th>Size (px)</th><th>Bbox</th></tr>'+
+            top.map((c,i)=>`<tr><td>${i+1}</td><td>${c.type}</td><td>${c.size.toLocaleString()}</td><td>${c.maxX-c.minX}×${c.maxY-c.minY}</td></tr>`).join('');
         });
       }
     },
@@ -909,7 +997,7 @@ function buildPanels(ink, inkCount, clusters, densityData, lineClusters){
         </div>
         <div style="margin-top:20px;padding:14px;background:#fcf1e0;border-left:4px solid var(--amber);font-family:var(--mono);font-size:12px;">
           📊 Additional data: ${clusters.length} clusters, dominant quadrant ${domQuad}, Bhranth Level ${bhranth.toFixed(1)}%,
-          Chaos Index ${chaos.toFixed(0)}/100. All of this is fake. You're welcome.
+          Chaos Index ${chaos.toFixed(0)}/100.
         </div>`;
       }
     },
