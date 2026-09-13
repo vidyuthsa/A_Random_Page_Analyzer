@@ -169,7 +169,7 @@ input[type=range]{accent-color:var(--blue);width:140px;}
 .panel-card{
   background:rgba(255,255,255,0.95);border:3px solid var(--ink);
   border-top:none;padding:32px;box-shadow:6px 6px 0 var(--ink);
-  min-height:420px;
+  min-height: auto; margin-bottom: 20px; padding-bottom: 32px;
   animation:slide-in .25s ease;
 }
 @keyframes slide-in{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
@@ -245,6 +245,15 @@ footer{
   padding:24px;border-top:2px dashed var(--paper-line);margin-top:40px;
   background:rgba(255,255,255,0.5);
 }
+
+#critic-wrap{position:fixed;bottom:20px;right:20px;display:flex;align-items:flex-end;gap:12px;z-index:99;opacity:0;pointer-events:none;transition:opacity 0.5s;}
+#critic-wrap.active{opacity:1;pointer-events:auto;}
+#critic-dialog{background:var(--paper);border:3px solid var(--ink);padding:14px;border-radius:12px 12px 0 12px;box-shadow:-4px 4px 0 var(--ink);max-width:250px;position:relative;}
+#critic-dialog::after{content:'';position:absolute;bottom:-3px;right:-15px;border-width:15px 0 0 15px;border-style:solid;border-color:var(--ink) transparent transparent transparent;}
+#critic-title{font-family:var(--mono);font-size:11px;font-weight:bold;color:#C6402F;margin-bottom:6px;text-transform:uppercase;}
+#critic-text{font-size:14px;line-height:1.4;}
+#critic-mascot{font-size:48px;filter:drop-shadow(-4px 4px 0 var(--ink));}
+
 </style>
 </head>
 <body>
@@ -308,6 +317,15 @@ footer{
 </div>
 
 <!-- ── MASCOT ── -->
+
+<div id="critic-wrap">
+  <div id="critic-dialog">
+    <div id="critic-title">Harsh Critic</div>
+    <div id="critic-text">Why are you even analyzing this?</div>
+  </div>
+  <div id="critic-mascot">??</div>
+</div>
+
 <div class="mascot-wrap" id="mascot-wrap">
   <!-- Scribble Man SVG -->
   <svg class="mascot-svg" viewBox="0 0 80 120" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -338,7 +356,7 @@ footer{
     <ellipse cx="52" cy="102" rx="8" ry="4" fill="#17181C"/>
   </svg>
   <div class="mascot-speech">
-    <div class="mascot-name">SCRIBBLE MAN, PhD (Probably) 🎓</div>
+    <div class="mascot-name">SCRIBBLE MAN (No PhD, Just Dumb But Right)</div>
     <div id="mascot-text">Loading your psychological profile... please scribble something first.</div>
   </div>
 </div>
@@ -630,22 +648,35 @@ function otsuThreshold(gray){
 }
 
 function classifyCluster(c) {
-    const w = c.maxX - c.minX;
-    const h = c.maxY - c.minY;
-    const aspect = w / (h || 1);
-    const density = c.size / (w * h || 1);
-    
-    // Drawn lines are highly elongated
-    if (c.elongation > 5.0 && density < 0.4) return 'Drawn Line';
-    
-    // Signatures are usually wide
-    if (aspect > 2.0 && c.size > 300 && density > 0.05 && density < 0.4) return 'Signature';
-    
-    // Alphabets/letters have somewhat balanced aspect ratios.
-    // In live drawing mode, they can be huge (pixel-wise), so we rely on density and aspect ratio rather than raw size.
-    if (aspect > 0.2 && aspect < 3.0 && density > 0.02 && density < 0.6) return 'Alphabet / Letter';
-    
-    return 'Chaotic Scribble';
+  const w = c.maxX - c.minX;
+  const h = c.maxY - c.minY;
+  const aspect = w / (h || 1);
+  const density = c.size / (w * h || 1);
+  const maxDim = Math.max(w, h);
+  const imgMaxDim = Math.max(W, H);
+  
+  if (c.holeCount > 0) {
+      if (maxDim > imgMaxDim * 0.4) return 'Unknown Doodle';
+      return 'Loop';
+  }
+  
+  if (c.elongation > 8.0 && maxDim > imgMaxDim * 0.05) {
+      return 'Drawn Line';
+  }
+  
+  if (density > 0.55 && w > imgMaxDim * 0.03 && h > imgMaxDim * 0.03) {
+      return 'Chaotic Scribble';
+  }
+  
+  if (maxDim > imgMaxDim * 0.25 && density < 0.25) {
+      return 'Signature';
+  }
+  
+  if (c.size > 5) {
+      return 'Alphabet / Letter';
+  }
+  
+  return 'Unknown Doodle';
 }
 
 function runFullAnalysis(threshold){
@@ -723,8 +754,8 @@ function analyzeInkColor(ink){
   const hex = "#" + ((1 << 24) + (meanR << 16) + (meanG << 8) + meanB).toString(16).slice(1).toUpperCase();
 
   let pigmentType = "Standard Dark Ink";
-  if (meanV < 28 && meanS < 20) pigmentType = "Carbon Black / India Ink";
-  else if (meanV < 45 && meanS < 25) pigmentType = "Graphite Pencil (HB/2B Lead)";
+  if (meanV < 28 && meanS < 20) pigmentType = "Deep Black Gel Pen";
+  else if (meanV < 45 && meanS < 25) pigmentType = "Standard Black Ballpoint Pen";
   else if (meanH >= 180 && meanH <= 260 && meanS > 20) pigmentType = "Royal Blue Ballpoint Pigment";
   else if (meanH >= 180 && meanH <= 260 && meanV > 55) pigmentType = "Cyan / Gel Blue Ink";
   else if ((meanH < 20 || meanH > 340) && meanS > 25) pigmentType = "Crimson Red Marking Pigment";
@@ -735,35 +766,99 @@ function analyzeInkColor(ink){
 }
 
 function findClusters(ink){
-  const labels=new Int32Array(W*H).fill(-1);
-  const clusters=[];
-  const stack=new Int32Array(W*H);
-  for(let start=0;start<ink.length;start++){
-    if(ink[start]!==1||labels[start]!==-1) continue;
-    let sp=0; stack[sp++]=start; labels[start]=clusters.length;
-    let minX=W,maxX=0,minY=H,maxY=0,count=0,sumX=0,sumY=0;
-    let sumXX=0,sumYY=0,sumXY=0;
-    while(sp>0){
-      const p=stack[--sp], x=p%W, y=(p/W)|0;
-      count++; sumX+=x; sumY+=y; sumXX+=x*x; sumYY+=y*y; sumXY+=x*y;
-      if(x<minX)minX=x; if(x>maxX)maxX=x;
-      if(y<minY)minY=y; if(y>maxY)maxY=y;
-      if(x>0){const q=p-1;if(ink[q]===1&&labels[q]===-1){labels[q]=clusters.length;stack[sp++]=q;}}
-      if(x<W-1){const q=p+1;if(ink[q]===1&&labels[q]===-1){labels[q]=clusters.length;stack[sp++]=q;}}
-      if(y>0){const q=p-W;if(ink[q]===1&&labels[q]===-1){labels[q]=clusters.length;stack[sp++]=q;}}
-      if(y<H-1){const q=p+W;if(ink[q]===1&&labels[q]===-1){labels[q]=clusters.length;stack[sp++]=q;}}
+    const labels = new Int32Array(W*H).fill(-1);
+    const clusters = [];
+    const stack = new Int32Array(W*H);
+    for(let start=0;start<ink.length;start++){
+      if(ink[start]!==1||labels[start]!==-1) continue;
+      let sp=0; stack[sp++]=start; labels[start]=clusters.length;
+      let minX=W,maxX=0,minY=H,maxY=0,count=0,sumX=0,sumY=0;
+      let sumXX=0,sumYY=0,sumXY=0;
+      while(sp>0){
+        const p=stack[--sp], x=p%W, y=(p/W)|0;
+        count++; sumX+=x; sumY+=y; sumXX+=x*x; sumYY+=y*y; sumXY+=x*y;
+        if(x<minX)minX=x; if(x>maxX)maxX=x;
+        if(y<minY)minY=y; if(y>maxY)maxY=y;
+        if(x>0){const q=p-1;if(ink[q]===1&&labels[q]===-1){labels[q]=clusters.length;stack[sp++]=q;}}
+        if(x<W-1){const q=p+1;if(ink[q]===1&&labels[q]===-1){labels[q]=clusters.length;stack[sp++]=q;}}
+        if(y>0){const q=p-W;if(ink[q]===1&&labels[q]===-1){labels[q]=clusters.length;stack[sp++]=q;}}
+        if(y<H-1){const q=p+W;if(ink[q]===1&&labels[q]===-1){labels[q]=clusters.length;stack[sp++]=q;}}
+      }
+      if(count>=2){
+        const cx=sumX/count, cy=sumY/count;
+        const vX=sumXX/count-cx*cx, vY=sumYY/count-cy*cy, cXY=sumXY/count-cx*cy;
+        const {elongation,direction}=pcaElongation(vX,vY,cXY);
+        const c = {size:count,minX,maxX,minY,maxY,cx,cy,elongation,direction,vX,vY,cXY, holeCount:0};
+        clusters.push(c);
+      } else { clusters.push(null); }
     }
-    if(count>=6){
-      const cx=sumX/count, cy=sumY/count;
-      const vX=sumXX/count-cx*cx, vY=sumYY/count-cy*cy, cXY=sumXY/count-cx*cy;
-      const {elongation,direction}=pcaElongation(vX,vY,cXY);
-      const c = {size:count,minX,maxX,minY,maxY,cx,cy,elongation,direction,vX,vY,cXY};
-      c.type = classifyCluster(c);
-      clusters.push(c);
-    } else { clusters.push(null); }
+    
+    const paper = new Uint8Array(W * H);
+    for (let i = 0; i < ink.length; i++) { if (ink[i] === 1) paper[i] = 2; }
+    
+    let q = [];
+    for (let x=0; x<W; x++) {
+      if (paper[x] === 0) { paper[x] = 1; q.push(x); }
+      if (paper[(H-1)*W + x] === 0) { paper[(H-1)*W + x] = 1; q.push((H-1)*W + x); }
+    }
+    for (let y=0; y<H; y++) {
+      if (paper[y*W] === 0) { paper[y*W] = 1; q.push(y*W); }
+      if (paper[y*W + W - 1] === 0) { paper[y*W + W - 1] = 1; q.push(y*W + W - 1); }
+    }
+    
+    let head = 0;
+    while(head < q.length) {
+      const p = q[head++];
+      const x = p % W, y = (p / W) | 0;
+      if (x > 0 && paper[p-1] === 0) { paper[p-1] = 1; q.push(p-1); }
+      if (x < W-1 && paper[p+1] === 0) { paper[p+1] = 1; q.push(p+1); }
+      if (y > 0 && paper[p-W] === 0) { paper[p-W] = 1; q.push(p-W); }
+      if (y < H-1 && paper[p+W] === 0) { paper[p+W] = 1; q.push(p+W); }
+    }
+    
+    const holeLabels = new Int32Array(W*H).fill(-1);
+    for (let start = 0; start < paper.length; start++) {
+      if (paper[start] === 0 && holeLabels[start] === -1) {
+        let sp = 0; stack[sp++] = start; holeLabels[start] = 1;
+        let foundClusterId = -1;
+        let holeSize = 0;
+        
+        while(sp > 0) {
+          const p = stack[--sp];
+          holeSize++;
+          const x = p % W, y = (p / W) | 0;
+          
+          if (foundClusterId === -1) {
+            const neighbors = [p-1, p+1, p-W, p+W, p-W-1, p-W+1, p+W-1, p+W+1];
+            for (let i=0; i<neighbors.length; i++) {
+              const n = neighbors[i];
+              if (n >= 0 && n < W*H && paper[n] === 2 && labels[n] !== -1) {
+                foundClusterId = labels[n];
+                break;
+              }
+            }
+          }
+          
+          if (x > 0 && paper[p-1] === 0 && holeLabels[p-1] === -1) { holeLabels[p-1] = 1; stack[sp++] = p-1; }
+          if (x < W-1 && paper[p+1] === 0 && holeLabels[p+1] === -1) { holeLabels[p+1] = 1; stack[sp++] = p+1; }
+          if (y > 0 && paper[p-W] === 0 && holeLabels[p-W] === -1) { holeLabels[p-W] = 1; stack[sp++] = p-W; }
+          if (y < H-1 && paper[p+W] === 0 && holeLabels[p+W] === -1) { holeLabels[p+W] = 1; stack[sp++] = p+W; }
+        }
+        
+        if (foundClusterId !== -1 && clusters[foundClusterId] && holeSize > 5) {
+          clusters[foundClusterId].holeCount++;
+        }
+      }
+    }
+    
+    for (let i = 0; i < clusters.length; i++) {
+      if (clusters[i]) {
+        clusters[i].type = classifyCluster(clusters[i]);
+      }
+    }
+    
+    return clusters.filter(Boolean);
   }
-  return clusters.filter(Boolean);
-}
 
 function pcaElongation(vX,vY,cXY){
   const tr=vX+vY, det=vX*vY-cXY*cXY;
@@ -854,6 +949,8 @@ function buildPanels(ink, inkCount, clusters, densityData, lineClusters, colorDa
   // Compute actual metrics
   const sigCount = clusters.filter(c=>c.type==='Signature').length;
   const letterCount = clusters.filter(c=>c.type==='Alphabet / Letter').length;
+  const loopCount = clusters.filter(c=>c.type==='Loop').length;
+  const dotCount = clusters.filter(c=>c.type==='Dot').length;
   const doodleCount = clusters.filter(c=>c.type==='Chaotic Scribble' || c.type==='Unknown Doodle').length;
   const totalStrokes = clusters.reduce((sum, c) => sum + estimateStrokes(c), 0);
   const avgSz = clusters.length ? clusters.reduce((a,c)=>a+c.size,0)/clusters.length : 0;
@@ -877,6 +974,36 @@ function buildPanels(ink, inkCount, clusters, densityData, lineClusters, colorDa
 
   panels = [
     {
+      icon:'📏', title:'METRES OF INK', desc:'Calculated physical path length of written strokes',
+      render: (el)=>{
+        const m = inkMetre.m.toFixed(2);
+        const cm = inkMetre.cm.toFixed(1);
+        const mm = inkMetre.mm.toFixed(0);
+        const inches = (inkMetre.m * 39.3701).toFixed(1);
+        const feet = (inkMetre.m * 3.28084).toFixed(2);
+        el.innerHTML = `
+        <div class="panel-header"><div class="panel-icon">📏</div><div><div class="panel-title">METRES OF INK USED</div><div class="panel-desc">Calculated physical path length of written strokes</div></div></div>
+        <div class="headline-stat">
+          <div class="big" style="color:var(--green)">${m}m</div>
+          <div class="label">total estimated physical stroke line length</div>
+        </div>
+        <div class="stat-grid">
+          <div class="stat-card"><div class="v">${cm} cm</div><div class="k">length in centimetres</div></div>
+          <div class="stat-card"><div class="v">${mm} mm</div><div class="k">length in millimetres</div></div>
+          <div class="stat-card"><div class="v">${inches} in</div><div class="k">length in inches</div></div>
+          <div class="stat-card"><div class="v">${feet} ft</div><div class="k">length in feet</div></div>
+          <div class="stat-card"><div class="v">${totalStrokes}</div><div class="k">total stroke lines</div></div>
+          <div class="stat-card"><div class="v">${(inkMetre.mm / (totalStrokes || 1)).toFixed(1)} mm</div><div class="k">average stroke length</div></div>
+          <div class="stat-card fake-stat"><div class="v">${(inkMetre.m * 1000 / 5).toFixed(0)}</div><div class="k">ants aligned head-to-tail</div></div>
+          <div class="stat-card fake-stat amber-fake"><div class="v">${(inkMetre.m / 0.25).toFixed(1)}</div><div class="k">spaghetti strands</div></div>
+          <div class="stat-card fake-stat blue-fake"><div class="v">${(inkMetre.m / 0.21).toFixed(1)}</div><div class="k">times across a notebook</div></div>
+        </div>
+        <div class="note" style="margin-top:16px">
+          📐 <strong>Methodology:</strong> Calculated using scan DPI resolution and standard pen nib width (0.5mm). Dividing total ink area by pen width yields exact stroke trajectory length.
+        </div>`;
+      }
+    },
+    {
       icon:'📊', title:'OVERVIEW', desc:'Complete Computer Vision summary of the scanned page',
       render: (el)=>{
         el.innerHTML = `
@@ -891,6 +1018,7 @@ function buildPanels(ink, inkCount, clusters, densityData, lineClusters, colorDa
           <div class="stat-card"><div class="v">${totalStrokes}</div><div class="k">estimated stroke lines</div></div>
           <div class="stat-card"><div class="v">${sigCount}</div><div class="k">signatures detected</div></div>
           <div class="stat-card"><div class="v">${letterCount}</div><div class="k">letter elements detected</div></div>
+          <div class="stat-card"><div class="v">${loopCount}</div><div class="k">loops detected</div></div>
           <div class="stat-card"><div class="v">${inkMetre.m.toFixed(2)} m</div><div class="k">total ink path length</div></div>
           <div class="stat-card"><div class="v">${colorData ? colorData.pigmentType : 'Dark Ink'}</div><div class="k">detected ink pigment</div></div>
           <div class="stat-card"><div class="v">${domQuad}</div><div class="k">highest density quadrant</div></div>
@@ -916,8 +1044,8 @@ function buildPanels(ink, inkCount, clusters, densityData, lineClusters, colorDa
         el.innerHTML = `
         <div class="panel-header"><div class="panel-icon">🎨</div><div><div class="panel-title">INK PIGMENT SPECTROSCOPE</div><div class="panel-desc">Detailed RGB, HSV, CIELAB & Pigment Analysis</div></div></div>
         <div class="headline-stat">
-          <div class="big" style="color:${colorData.hex}">${colorData.pigmentType}</div>
-          <div class="label">detected ink pigment composition (Dominant HEX: <span style="display:inline-block;width:14px;height:14px;background:${colorData.hex};border:1px solid #000;vertical-align:middle;"></span> <code>${colorData.hex}</code>)</div>
+          <div class="big" style="color:${colorData.hex}">${colorData.hex}</div>
+          <div class="label">detected ink color code (Dominant HEX: <span style="display:inline-block;width:14px;height:14px;background:${colorData.hex};border:1px solid #000;vertical-align:middle;"></span> <code>${colorData.hex}</code>)</div>
         </div>
         <div class="stat-grid">
           <div class="stat-card"><div class="v">RGB(${colorData.meanR}, ${colorData.meanG}, ${colorData.meanB})</div><div class="k">mean sRGB color</div></div>
@@ -962,32 +1090,43 @@ function buildPanels(ink, inkCount, clusters, densityData, lineClusters, colorDa
       }
     },
     {
-      icon:'📏', title:'METRES OF INK', desc:'Calculated physical path length of written strokes',
+      icon:'?', title:'CLOSED LOOP FINDER', desc:'Topological analysis of specific characters',
       render: (el)=>{
-        const m = inkMetre.m.toFixed(2);
-        const cm = inkMetre.cm.toFixed(1);
-        const mm = inkMetre.mm.toFixed(0);
-        const inches = (inkMetre.m * 39.3701).toFixed(1);
-        const feet = (inkMetre.m * 3.28084).toFixed(2);
         el.innerHTML = `
-        <div class="panel-header"><div class="panel-icon">📏</div><div><div class="panel-title">METRES OF INK USED</div><div class="panel-desc">Calculated physical path length of written strokes</div></div></div>
+        <div class="panel-header"><div class="panel-icon">?</div><div><div class="panel-title">CLOSED LOOP FINDER</div><div class="panel-desc">Topological analysis of specific characters</div></div></div>
         <div class="headline-stat">
-          <div class="big" style="color:var(--green)">${m}m</div>
-          <div class="label">total estimated physical stroke line length</div>
+          <div class="big" style="color:#9b59b6">${loopCount}</div>
+          <div class="label">total topological features detected</div>
         </div>
         <div class="stat-grid">
-          <div class="stat-card"><div class="v">${cm} cm</div><div class="k">length in centimetres</div></div>
-          <div class="stat-card"><div class="v">${mm} mm</div><div class="k">length in millimetres</div></div>
-          <div class="stat-card"><div class="v">${inches} in</div><div class="k">length in inches</div></div>
-          <div class="stat-card"><div class="v">${feet} ft</div><div class="k">length in feet</div></div>
-          <div class="stat-card"><div class="v">${totalStrokes}</div><div class="k">total stroke lines (e.g. 'V'=2, 'N'=3)</div></div>
-          <div class="stat-card"><div class="v">${(inkMetre.mm / (totalStrokes || 1)).toFixed(1)} mm</div><div class="k">average stroke length</div></div>
-        </div>
-        <div class="note" style="margin-top:16px">
-          📐 <strong>Methodology:</strong> Calculated using scan DPI resolution and standard pen nib width (0.5mm). Dividing total ink area by pen width yields exact stroke trajectory length.
+          <div class="stat-card"><div class="v">${loopCount}</div><div class="k">closed loops (e.g. a, d, o, p, q)</div></div>
+          </div>
+        <div class="split" style="margin-top:20px;">
+          <div><canvas class="viz" id="canvas-topology"></canvas></div>
+          <div>
+            <p class="note">?? <strong>Topological Map:</strong> Highlighting fully enclosed circular strokes (purple) across the page.</p>
+          </div>
         </div>`;
+        requestAnimationFrame(()=>{
+          const cv=document.getElementById('canvas-topology');
+          if(!cv) return;
+          cv.width=W; cv.height=H;
+          const ctx=cv.getContext('2d');
+          ctx.drawImage(sourceCanvas,0,0);
+          
+          ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+          ctx.fillRect(0, 0, W, H);
+          
+          clusters.forEach(c=>{
+            if (c.type === 'Loop') {
+              ctx.strokeStyle='#9b59b6'; ctx.lineWidth=3;
+              ctx.strokeRect(c.minX-4, c.minY-4, c.maxX-c.minX+8, c.maxY-c.minY+8);
+            }
+          });
+        });
       }
     },
+    
     {
       icon:'📦', title:'CLUSTER BREAKDOWN', desc:'Shape analysis & stroke line categorization',
       render: (el)=>{
@@ -1026,9 +1165,11 @@ function buildPanels(ink, inkCount, clusters, densityData, lineClusters, colorDa
           ctx.drawImage(sourceCanvas,0,0);
           clusters.forEach(c=>{
             let col='#8B8A80';
-            if(c.size>=p90) col='#2C55E8';
-            else if(c.size>=p50) col='#C98A1E';
-            ctx.strokeStyle=col; ctx.lineWidth=c.size>=p90?2.5:1.5;
+            if(c.type === 'Signature') col='#C6402F';
+            else if(c.type === 'Alphabet / Letter') col='#2C55E8';
+            else if(c.type === 'Loop') col='#9b59b6';
+            else if(c.type === 'Drawn Line') col='#C98A1E';
+            ctx.strokeStyle=col; ctx.lineWidth=2;
             ctx.strokeRect(c.minX,c.minY,c.maxX-c.minX,c.maxY-c.minY);
           });
           const top=[...clusters].sort((a,b)=>b.size-a.size).slice(0,8);
@@ -1187,6 +1328,18 @@ function showResults(inkCount, clusters, densityData, lineClusters){
   const totalStrokes = clusters.reduce((sum, c) => sum + estimateStrokes(c), 0);
   const fn = mascotLines[Math.floor(Math.random()*mascotLines.length)];
   document.getElementById('mascot-text').textContent = fn(clusters.length, totalStrokes, metre);
+  
+  const criticLines = [
+    (l, d) => `Way too many chaotic scribbles. Do you even know how to hold a pen?`,
+    (l, d) => `I found ${l} unreadable loops. This handwriting is utterly unreadable.`,
+    (l, d) => `Are you a doctor? Because this looks like a medical prescription.`,
+    (l, d) => `Absolutely zero spatial awareness. Disgusting.`
+  ];
+  const cFn = criticLines[Math.floor(Math.random()*criticLines.length)];
+  const loopCount = clusters.filter(c=>c.type==='Loop').length;
+  const dotCount = clusters.filter(c=>c.type==='Dot').length;
+  document.getElementById('critic-text').textContent = cFn(loopCount, dotCount);
+  document.getElementById('critic-wrap').classList.add('active');
 
   buildDots();
   renderPanel(0);
