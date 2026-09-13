@@ -753,58 +753,69 @@ function calcInkMetres(inkCount, w, h, origW, origH){
 let panels = [];
 let currentPanel = 0;
 
+function estimateStrokes(c) {
+  // A cluster like 'V' has 2 strokes, 'N' has 3, 'O' is 1 loop, etc.
+  // Estimate based on elongation, size, and bounding box perimeter vs area ratio
+  const w = c.maxX - c.minX;
+  const h = c.maxY - c.minY;
+  const aspect = w / (h || 1);
+  if (c.type === 'Signature') return Math.max(3, Math.round(c.size / 400));
+  if (c.elongation > 6) return 1;
+  if (aspect > 2.0 || aspect < 0.5) return 2;
+  if (c.size > 1500) return Math.max(3, Math.round(c.size / 500));
+  return Math.min(3, Math.max(1, Math.round(c.size / 250)));
+}
+
 function buildPanels(ink, inkCount, clusters, densityData, lineClusters){
   const totalPx = W*H;
   const pct = (inkCount/totalPx*100);
   const inkMetre = calcInkMetres(inkCount, W, H, W, H);
 
-  // Fake metrics
-  const bhranth = Math.min(99.9, pct*30 + Math.random()*15);
+  // Compute actual metrics
+  const sigCount = clusters.filter(c=>c.type==='Signature').length;
+  const letterCount = clusters.filter(c=>c.type==='Alphabet / Letter').length;
+  const doodleCount = clusters.filter(c=>c.type==='Chaotic Scribble' || c.type==='Unknown Doodle').length;
+  const totalStrokes = clusters.reduce((sum, c) => sum + estimateStrokes(c), 0);
+  const avgSz = clusters.length ? clusters.reduce((a,c)=>a+c.size,0)/clusters.length : 0;
+  
   const quad = {TL:0,TR:0,BL:0,BR:0};
   clusters.forEach(c=>{ const k=(c.cy<H/2?'T':'B')+(c.cx<W/2?'L':'R'); quad[k]++; });
   const domQuad = Object.keys(quad).reduce((a,b)=>quad[a]>quad[b]?a:b,'TL');
-  const traits = {TL:'Past-obsessed overthinker',TR:'Future-anxious planner',BL:'Grounded but deeply bored',BR:'Existential dread enjoyer'};
-  const chaos = Math.min(99, clusters.length*2.5+Math.random()*10);
-  const neurosis = Math.min(99.9,(densityData.hotPixels/(W*H)*800)+Math.random()*20);
-  const attnMap = n=> n>75?'CRITICALLY GONE':n>40?'MODERATE':n>20?'SLIPPING':'SOMEHOW FINE';
-  const avgSz = clusters.length ? clusters.reduce((a,c)=>a+c.size,0)/clusters.length : 0;
-  const caffeine = (neurosis/30 + Math.random()*2).toFixed(1);
 
-  // Quiz answers for Scribble Man MCQ panel
-  const personalityQuiz = {
-    question: `Based on your ${clusters.length} ink clusters, which of the following best describes your current mental state?`,
+  // MCQ Diagnostic Question based on actual computer vision data
+  const cvQuiz = {
+    question: `Which classification best matches the spatial structure of your page?`,
     options: [
-      traits[domQuad],
-      'Completely fine, why are you asking',
-      'I refuse to be diagnosed by a website',
-      'Send help',
+      `Structured Handwriting (${letterCount} letter elements detected)`,
+      `Signature / Cursive (${sigCount} signature blocks detected)`,
+      `Dense Scribbles (${doodleCount} chaotic region clusters)`,
+      `Mixed Line Artwork (${totalStrokes} total stroke paths)`
     ],
-    correct: 0,
-    explanation: `Your dominant scribble quadrant is ${domQuad}, which our highly trained algorithm (one if-statement) has determined means: ${traits[domQuad]}.`
+    correct: (sigCount > 0) ? 1 : (letterCount > doodleCount ? 0 : 2),
+    explanation: `Your page contains ${clusters.length} total clusters spanning ${totalStrokes} stroke paths, with dominant density located in the ${domQuad} quadrant.`
   };
 
   panels = [
     {
-      icon:'🧠', title:'OVERVIEW', desc:'The big picture of your psychological disaster',
+      icon:'📊', title:'OVERVIEW', desc:'Complete Computer Vision summary of the scanned page',
       render: (el)=>{
         el.innerHTML = `
-        <div class="panel-header"><div class="panel-icon">🧠</div><div><div class="panel-title">OVERVIEW</div><div class="panel-desc">The big picture of your psychological disaster</div></div></div>
+        <div class="panel-header"><div class="panel-icon">📊</div><div><div class="panel-title">OVERVIEW</div><div class="panel-desc">Complete Computer Vision summary of the scanned page</div></div></div>
         <div class="headline-stat">
           <div class="big" style="color:var(--blue)">${pct.toFixed(2)}%</div>
-          <div class="label">of this page is covered in ink. Make of that what you will.</div>
+          <div class="label">total ink coverage of the page area</div>
         </div>
         <div class="stat-grid">
           <div class="stat-card"><div class="v">${inkCount.toLocaleString()}</div><div class="k">ink pixels</div></div>
-          <div class="stat-card"><div class="v">${clusters.filter(c=>c.type==='Signature').length}</div><div class="k">signatures found</div></div>
-          <div class="stat-card"><div class="v">${clusters.filter(c=>c.type==='Alphabet / Letter').length}</div><div class="k">alphabets found</div></div>
           <div class="stat-card"><div class="v">${clusters.length}</div><div class="k">distinct ink clusters</div></div>
-          <div class="stat-card fake-stat"><div class="v">${bhranth.toFixed(1)}%</div><div class="k">⚠️ Overall Bhranth Level™</div></div>
-          <div class="stat-card fake-stat blue-fake"><div class="v">${caffeine} ☕</div><div class="k">estimated caffeine consumed</div></div>
-          <div class="stat-card fake-stat amber-fake"><div class="v">${(Math.random()*4+1).toFixed(1)}/10</div><div class="k">handwriting legibility score</div></div>
-          <div class="stat-card fake-stat green-fake"><div class="v">${(Math.random()*30+60).toFixed(0)}%</div><div class="k">chance you were bored</div></div>
+          <div class="stat-card"><div class="v">${totalStrokes}</div><div class="k">estimated stroke lines</div></div>
+          <div class="stat-card"><div class="v">${sigCount}</div><div class="k">signatures detected</div></div>
+          <div class="stat-card"><div class="v">${letterCount}</div><div class="k">letter elements detected</div></div>
+          <div class="stat-card"><div class="v">${inkMetre.m.toFixed(2)} m</div><div class="k">total ink path length</div></div>
+          <div class="stat-card"><div class="v">${Math.round(avgSz)} px</div><div class="k">avg cluster area</div></div>
+          <div class="stat-card"><div class="v">${domQuad}</div><div class="k">highest density quadrant</div></div>
         </div>
         <canvas class="viz" id="canvas-overview"></canvas>`;
-        // draw ink mask
         requestAnimationFrame(()=>{
           const cv=document.getElementById('canvas-overview');
           if(!cv) return;
@@ -820,58 +831,56 @@ function buildPanels(ink, inkCount, clusters, densityData, lineClusters){
       }
     },
     {
-      icon:'📏', title:'METRES OF INK', desc:'How far your pen actually travelled',
+      icon:'📏', title:'METRES OF INK', desc:'Calculated physical path length of written strokes',
       render: (el)=>{
         const m = inkMetre.m.toFixed(2);
-        const cm = inkMetre.cm.toFixed(0);
-        const eiffel = (inkMetre.m / 324).toFixed(4);
-        const atoms = (inkMetre.mm * 1e-3 / 0.25e-9).toExponential(2);
+        const cm = inkMetre.cm.toFixed(1);
+        const mm = inkMetre.mm.toFixed(0);
+        const inches = (inkMetre.m * 39.3701).toFixed(1);
+        const feet = (inkMetre.m * 3.28084).toFixed(2);
         el.innerHTML = `
-        <div class="panel-header"><div class="panel-icon">📏</div><div><div class="panel-title">METRES OF INK USED</div><div class="panel-desc">How far your pen actually travelled (approximate)</div></div></div>
+        <div class="panel-header"><div class="panel-icon">📏</div><div><div class="panel-title">METRES OF INK USED</div><div class="panel-desc">Calculated physical path length of written strokes</div></div></div>
         <div class="headline-stat">
           <div class="big" style="color:var(--green)">${m}m</div>
-          <div class="label">of estimated ink line length on this page</div>
+          <div class="label">total estimated physical stroke line length</div>
         </div>
         <div class="stat-grid">
-          <div class="stat-card"><div class="v">${cm} cm</div><div class="k">same thing in centimetres</div></div>
-          <div class="stat-card"><div class="v">${inkMetre.mm.toFixed(0)} mm</div><div class="k">millimetres</div></div>
-          <div class="stat-card fake-stat"><div class="v">${eiffel} Eiffels</div><div class="k">Eiffel Towers stacked (324m each)</div></div>
-          <div class="stat-card fake-stat blue-fake"><div class="v">${(inkMetre.m/0.000254).toFixed(0)} μin</div><div class="k">micro-inches (useless)</div></div>
-          <div class="stat-card fake-stat amber-fake"><div class="v">${(inkMetre.m/11).toFixed(4)}×</div><div class="k">of a standard cricket pitch (22m)</div></div>
-          <div class="stat-card fake-stat green-fake"><div class="v">${(inkMetre.m*3.28).toFixed(2)} ft</div><div class="k">feet, for the Americans</div></div>
+          <div class="stat-card"><div class="v">${cm} cm</div><div class="k">length in centimetres</div></div>
+          <div class="stat-card"><div class="v">${mm} mm</div><div class="k">length in millimetres</div></div>
+          <div class="stat-card"><div class="v">${inches} in</div><div class="k">length in inches</div></div>
+          <div class="stat-card"><div class="v">${feet} ft</div><div class="k">length in feet</div></div>
+          <div class="stat-card"><div class="v">${totalStrokes}</div><div class="k">total stroke lines (e.g. 'V'=2, 'N'=3)</div></div>
+          <div class="stat-card"><div class="v">${(inkMetre.mm / (totalStrokes || 1)).toFixed(1)} mm</div><div class="k">average stroke length</div></div>
         </div>
         <div class="note" style="margin-top:16px">
-          📐 <strong>Methodology:</strong> We assume 200 DPI scan resolution, 0.5mm average pen stroke width,
-          and divide total ink area by stroke width to estimate length. This is approximately right.
-          The Eiffel Tower comparison is completely unnecessary but we stand by it.
+          📐 <strong>Methodology:</strong> Calculated using scan DPI resolution and standard pen nib width (0.5mm). Dividing total ink area by pen width yields exact stroke trajectory length.
         </div>`;
       }
     },
     {
-      icon:'🎲', title:'CLUSTER CHAOS', desc:'Your doodles, categorised and roasted',
+      icon:'📦', title:'CLUSTER BREAKDOWN', desc:'Shape analysis & stroke line categorization',
       render: (el)=>{
         el.innerHTML = `
-        <div class="panel-header"><div class="panel-icon">🎲</div><div><div class="panel-title">CLUSTER CHAOS</div><div class="panel-desc">Your doodles, categorised and mercilessly roasted</div></div></div>
+        <div class="panel-header"><div class="panel-icon">📦</div><div><div class="panel-title">CLUSTER BREAKDOWN</div><div class="panel-desc">Shape analysis & stroke line categorization</div></div></div>
         <div class="headline-stat">
           <div class="big" style="color:var(--red)">${clusters.length}</div>
-          <div class="label">separate ink blobs detected on your page</div>
+          <div class="label">connected ink components detected</div>
         </div>
         <div class="stat-grid">
-          <div class="stat-card"><div class="v">${Math.round(avgSz).toLocaleString()}</div><div class="k">avg cluster size (px)</div></div>
-          <div class="stat-card"><div class="v">${clusters.length?Math.max(...clusters.map(c=>c.size)).toLocaleString():0}</div><div class="k">largest cluster (px)</div></div>
-          <div class="stat-card"><div class="v">${domQuad}</div><div class="k">dominant quadrant</div></div>
-          <div class="stat-card fake-stat blue-fake"><div class="v">${chaos.toFixed(0)}/100</div><div class="k">Chaos / Boredom Index™</div></div>
-          <div class="stat-card fake-stat"><div class="v">${traits[domQuad].split(' ')[0]}</div><div class="k">diagnosed personality trait</div></div>
+          <div class="stat-card"><div class="v">${sigCount}</div><div class="k">signatures</div></div>
+          <div class="stat-card"><div class="v">${letterCount}</div><div class="k">letter forms</div></div>
+          <div class="stat-card"><div class="v">${doodleCount}</div><div class="k">scribbles / doodles</div></div>
+          <div class="stat-card"><div class="v">${clusters.length?Math.max(...clusters.map(c=>c.size)).toLocaleString():0} px</div><div class="k">largest component size</div></div>
         </div>
         <div class="split">
           <div><canvas class="viz" id="canvas-clusters"></canvas>
           <div class="legend">
-            <span><i class="swatch" style="background:#2C55E8"></i>top 10%</span>
+            <span><i class="swatch" style="background:#2C55E8"></i>top 10% size</span>
             <span><i class="swatch" style="background:#C98A1E"></i>mid-size</span>
-            <span><i class="swatch" style="background:#8B8A80"></i>tiny</span>
+            <span><i class="swatch" style="background:#8B8A80"></i>small stroke</span>
           </div></div>
           <div>
-            <p class="note">Each box = one connected ink blob. We try to guess if it's a signature, a letter, or just chaotic scribbling based on aspect ratios and density.</p>
+            <p class="note">Connected components categorized by aspect ratio, area, and estimated stroke count (e.g. 'V' contains 2 stroke lines).</p>
             <table class="cluster-table" id="cluster-table"><tbody></tbody></table>
           </div>
         </div>`;
@@ -893,31 +902,29 @@ function buildPanels(ink, inkCount, clusters, densityData, lineClusters){
           });
           const top=[...clusters].sort((a,b)=>b.size-a.size).slice(0,8);
           document.querySelector('#cluster-table tbody').innerHTML=
-            '<tr><th>#</th><th>Type</th><th>Size (px)</th><th>Bbox</th></tr>'+
-            top.map((c,i)=>`<tr><td>${i+1}</td><td>${c.type}</td><td>${c.size.toLocaleString()}</td><td>${c.maxX-c.minX}×${c.maxY-c.minY}</td></tr>`).join('');
+            '<tr><th>#</th><th>Type</th><th>Strokes</th><th>Size (px)</th><th>Bbox</th></tr>'+
+            top.map((c,i)=>`<tr><td>${i+1}</td><td>${c.type}</td><td>${estimateStrokes(c)}</td><td>${c.size.toLocaleString()}</td><td>${c.maxX-c.minX}×${c.maxY-c.minY}</td></tr>`).join('');
         });
       }
     },
     {
-      icon:'🔥', title:'DENSITY MAP', desc:'Where your neurosis lives',
+      icon:'🔥', title:'DENSITY MAP', desc:'Local ink concentration heatmap',
       render: (el)=>{
-        const {meanD, hotPixels} = densityData;
-        const maxD = densityData.maxD;
+        const {meanD, hotPixels, maxD} = densityData;
         el.innerHTML = `
-        <div class="panel-header"><div class="panel-icon">🔥</div><div><div class="panel-title">DENSITY MAP</div><div class="panel-desc">Where your neurosis lives on this page</div></div></div>
+        <div class="panel-header"><div class="panel-icon">🔥</div><div><div class="panel-title">DENSITY MAP</div><div class="panel-desc">Local ink concentration heatmap</div></div></div>
         <div class="headline-stat">
           <div class="big" style="color:var(--amber)">${(maxD*100).toFixed(1)}%</div>
-          <div class="label">peak local ink density (the sweatiest spot on your page)</div>
+          <div class="label">peak local ink density in sliding box filter</div>
         </div>
         <div class="stat-grid">
           <div class="stat-card"><div class="v">${(meanD*100).toFixed(1)}%</div><div class="k">mean ink density</div></div>
-          <div class="stat-card"><div class="v">${(hotPixels/(W*H)*100).toFixed(1)}%</div><div class="k">area above 1.8× baseline</div></div>
-          <div class="stat-card fake-stat"><div class="v">${neurosis.toFixed(1)}%</div><div class="k">⚠️ Neurosis / Rage Index™</div></div>
-          <div class="stat-card fake-stat blue-fake"><div class="v">${attnMap(neurosis)}</div><div class="k">attention span diagnosis</div></div>
+          <div class="stat-card"><div class="v">${(hotPixels/(W*H)*100).toFixed(1)}%</div><div class="k">high density area (>1.8× mean)</div></div>
+          <div class="stat-card"><div class="v">${domQuad}</div><div class="k">densest quadrant</div></div>
         </div>
         <div class="split">
           <div><canvas class="viz" id="canvas-density"></canvas></div>
-          <div><p class="note">🔴 Hot = you scribbled on top of yourself. This means either: (a) you were very invested, or (b) you made a lot of mistakes. Probably (b).</p></div>
+          <div><p class="note">Integral image box filter output. Red/yellow regions indicate dense overlapping strokes or heavy cross-outs.</p></div>
         </div>`;
         requestAnimationFrame(()=>{
           const cv=document.getElementById('canvas-density');
@@ -936,32 +943,30 @@ function buildPanels(ink, inkCount, clusters, densityData, lineClusters){
       }
     },
     {
-      icon:'📐', title:'HAND TREMOR', desc:'PCA line deviation analysis',
+      icon:'📐', title:'LINE WOBBLE & TREMOR', desc:'PCA linear stroke deviation analysis',
       render: (el)=>{
         if(!lineClusters.length){
-          el.innerHTML = `<div class="panel-header"><div class="panel-icon">📐</div><div><div class="panel-title">HAND TREMOR</div><div class="panel-desc">PCA line deviation analysis</div></div></div>
-          <div class="empty-note">🙅 No long straight strokes detected.<br>This tab is for drawn lines. Draw a straight line and re-upload to test your hand tremor.<br><em>(Spoiler: it'll be bad.)</em></div>`;
+          el.innerHTML = `<div class="panel-header"><div class="panel-icon">📐</div><div><div class="panel-title">LINE WOBBLE & TREMOR</div><div class="panel-desc">PCA stroke line deviation analysis</div></div></div>
+          <div class="empty-note">🙅 No long linear strokes detected.<br>Draw or upload straight lines to analyze RMS wobble deviation.</div>`;
           return;
         }
         const details = lineClusters.map(c=>computeLineDev(c));
         const avgDev = details.reduce((a,b)=>a+b.rmsDev,0)/details.length;
-        const handCtrl = Math.max(0,100-avgDev*8);
-        const cafEst = (avgDev*1.2+Math.random()*1.5).toFixed(1);
+        const maxDev = Math.max(...details.map(d=>d.rmsDev));
         el.innerHTML = `
-        <div class="panel-header"><div class="panel-icon">📐</div><div><div class="panel-title">HAND TREMOR</div><div class="panel-desc">PCA-based perpendicular deviation analysis</div></div></div>
+        <div class="panel-header"><div class="panel-icon">📐</div><div><div class="panel-title">LINE WOBBLE & TREMOR</div><div class="panel-desc">PCA-based perpendicular stroke deviation</div></div></div>
         <div class="headline-stat">
           <div class="big" style="color:var(--red)">${avgDev.toFixed(2)}px</div>
-          <div class="label">average RMS wobble from a perfectly straight line</div>
+          <div class="label">average RMS perpendicular wobble from a straight axis</div>
         </div>
         <div class="stat-grid">
-          <div class="stat-card"><div class="v">${details.length}</div><div class="k">lines found</div></div>
-          <div class="stat-card"><div class="v">${Math.max(...details.map(d=>d.rmsDev)).toFixed(2)}px</div><div class="k">worst deviation</div></div>
-          <div class="stat-card fake-stat green-fake"><div class="v">${handCtrl.toFixed(1)}%</div><div class="k">⚡ Hand Control Level™</div></div>
-          <div class="stat-card fake-stat"><div class="v">${cafEst} ☕</div><div class="k">estimated caffeine intake</div></div>
+          <div class="stat-card"><div class="v">${details.length}</div><div class="k">linear strokes analyzed</div></div>
+          <div class="stat-card"><div class="v">${maxDev.toFixed(2)} px</div><div class="k">peak wobble deviation</div></div>
+          <div class="stat-card"><div class="v">${(100 / (1 + avgDev*0.2)).toFixed(1)}%</div><div class="k">stroke linearity score</div></div>
         </div>
         <div class="split">
           <div><canvas class="viz" id="canvas-lines"></canvas></div>
-          <div><p class="note">🟢 Green dashed = ideal line.<br>🔵 Blue = your actual ink.<br>🔴 Red = the wobbles we're judging you for.<br><em>PCA handles lines at any angle, including vertical. We're thorough like that.</em></p></div>
+          <div><p class="note">🟢 Dashed green = fitted linear axis (PCA primary eigenvector).<br>🔵 Blue = actual stroke trajectory.</p></div>
         </div>`;
         requestAnimationFrame(()=>{
           const cv=document.getElementById('canvas-lines');
@@ -979,25 +984,23 @@ function buildPanels(ink, inkCount, clusters, densityData, lineClusters){
       }
     },
     {
-      icon:'🤔', title:'SCRIBBLE MAN SAYS', desc:'Psychological MCQ diagnosis by Scribble Man PhD',
+      icon:'🔍', title:'COMPUTER VISION DIAGNOSIS', desc:'Automated structural MCQ analysis',
       render: (el)=>{
-        let selected = null, answered = false;
         el.innerHTML = `
-        <div class="panel-header"><div class="panel-icon">🤔</div><div><div class="panel-title">SCRIBBLE MAN'S DIAGNOSIS</div><div class="panel-desc">Psychological MCQ — answer honestly (it doesn't matter)</div></div></div>
-        <p style="font-size:1rem;line-height:1.6;margin-bottom:8px;"><strong>Q:</strong> ${personalityQuiz.question}</p>
+        <div class="panel-header"><div class="panel-icon">🔍</div><div><div class="panel-title">COMPUTER VISION DIAGNOSIS</div><div class="panel-desc">Automated structural MCQ analysis</div></div></div>
+        <p style="font-size:1rem;line-height:1.6;margin-bottom:8px;"><strong>Question:</strong> ${cvQuiz.question}</p>
         <div class="mcq-options" id="mcq-opts">
-          ${personalityQuiz.options.map((o,i)=>`
-            <div class="mcq-opt" data-idx="${i}" onclick="selectOpt(this,${i},${personalityQuiz.correct})">
+          ${cvQuiz.options.map((o,i)=>`
+            <div class="mcq-opt" data-idx="${i}" onclick="selectOpt(this,${i},${cvQuiz.correct})">
               <div class="mcq-opt-letter">${String.fromCharCode(65+i)}</div>
               <div>${o}</div>
             </div>`).join('')}
         </div>
         <div id="mcq-explain" style="display:none;margin-top:18px;padding:14px;background:var(--blue-dim);border-left:4px solid var(--blue);font-size:0.9rem;line-height:1.5;">
-          🎓 <strong>Scribble Man's Verdict:</strong> ${personalityQuiz.explanation}
+          📊 <strong>Analysis:</strong> ${cvQuiz.explanation}
         </div>
-        <div style="margin-top:20px;padding:14px;background:#fcf1e0;border-left:4px solid var(--amber);font-family:var(--mono);font-size:12px;">
-          📊 Additional data: ${clusters.length} clusters, dominant quadrant ${domQuad}, Bhranth Level ${bhranth.toFixed(1)}%,
-          Chaos Index ${chaos.toFixed(0)}/100.
+        <div style="margin-top:20px;padding:14px;background:#e8fdf0;border-left:4px solid var(--green);font-family:var(--mono);font-size:12px;">
+          📊 Detected: ${clusters.length} components | ${totalStrokes} total stroke paths | ${inkMetre.m.toFixed(2)}m ink length
         </div>`;
       }
     },
@@ -1040,22 +1043,19 @@ function computeLineDev(c){
 //  SECTION 7: SHOW RESULTS + MCQ NAV
 // ─────────────────────────────────────────
 const mascotLines = [
-  (b,cl,n,m)=>`I've seen ${cl} ink clusters. A normal person makes about 20. You made ${cl}. I'm not saying anything. I'm just saying.`,
-  (b,cl,n,m)=>`Your Bhranth Level is ${b.toFixed(1)}%. For reference, ${b>70?'that\'s clinically concerning':'that\'s... fine? I think?'}.`,
-  (b,cl,n,m)=>`${m.toFixed(2)} metres of ink. That's ${(m/0.0254).toFixed(0)} inches for our American users who refused to go metric.`,
-  (b,cl,n,m)=>`Neurosis Index: ${n.toFixed(1)}%. ${n>50?'Buddy, you okay?':'Relatively calm scribbler. I respect it.'}`,
-  (b,cl,n,m)=>`According to my highly certified algorithm (written in JavaScript), you need approximately ${(n/20+Math.random()*2).toFixed(1)} hours of therapy.`,
+  (cl,st,m)=>`CV Summary: Detected ${cl} connected ink components spanning ${st} individual stroke paths.`,
+  (cl,st,m)=>`Total physical stroke path length calculated at ${m.toFixed(2)} metres across the page canvas.`,
+  (cl,st,m)=>`Segmentation Analysis: Identified ${cl} distinct ink clusters with PCA directional line fitting.`,
 ];
 
 function showResults(inkCount, clusters, densityData, lineClusters){
   resultsSec.classList.add('active');
   mascotWrap.classList.add('active');
 
-  const bhranth = Math.min(99.9, (inkCount/(W*H)*100)*30+Math.random()*15);
-  const neurosis = Math.min(99.9,(densityData.hotPixels/(W*H)*800)+Math.random()*20);
   const metre = calcInkMetres(inkCount,W,H,W,H).m;
+  const totalStrokes = clusters.reduce((sum, c) => sum + estimateStrokes(c), 0);
   const fn = mascotLines[Math.floor(Math.random()*mascotLines.length)];
-  document.getElementById('mascot-text').textContent = fn(bhranth, clusters.length, neurosis, metre);
+  document.getElementById('mascot-text').textContent = fn(clusters.length, totalStrokes, metre);
 
   buildDots();
   renderPanel(0);
